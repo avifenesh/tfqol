@@ -17,7 +17,7 @@ Requirements:
 - `libportaudio2` (for the sounddevice Python bindings)
 
 ```bash
-cd ~/projects/voiced
+cd ~/projects/tfqol/voiced
 uv venv && uv sync && uv pip install -e .
 
 # pin the input device (substring match on the sounddevice device name)

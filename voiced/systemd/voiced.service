@@ -6,7 +6,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/projects/voiced/.venv/bin/voiced
+ExecStart=%h/projects/tfqol/voiced/.venv/bin/voiced
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
