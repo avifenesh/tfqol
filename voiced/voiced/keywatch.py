@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import selectors
+import sys
 import threading
 import time
 from pathlib import Path
@@ -26,6 +27,7 @@ from evdev import ecodes
 log = logging.getLogger(__name__)
 
 HOLD_MS = 500  # long-press threshold
+RESCAN_SEC = 60  # how often to look for hot-plugged keyboards
 
 
 def _is_keyboard(d: evdev.InputDevice) -> bool:
@@ -81,33 +83,49 @@ class KeyWatcher:
         self._stop.set()
 
     def _run(self) -> None:
-        paths = find_keyboards()
-        if not paths:
-            log.error("keywatch: no keyboards found (is user in `input` group?)")
-            return
-        devs: list[evdev.InputDevice] = []
-        try:
-            for p in paths:
-                try:
-                    d = evdev.InputDevice(str(p))
-                    d.grab  # noqa: B018 — just check attribute presence
-                    devs.append(d)
-                except OSError as e:
-                    log.warning("keywatch: can't open %s: %s", p, e)
-        except Exception:  # noqa: BLE001
-            log.exception("keywatch: dev open failed")
-            return
-
         sel = selectors.DefaultSelector()
-        for d in devs:
+        devs: dict[str, evdev.InputDevice] = {}  # path -> device
+
+        def add(path: Path) -> None:
+            sp = str(path)
+            if sp in devs:
+                return
+            try:
+                d = evdev.InputDevice(sp)
+            except OSError as e:
+                log.warning("keywatch: can't open %s: %s", sp, e)
+                return
+            devs[sp] = d
             sel.register(d, selectors.EVENT_READ)
+            log.info("keywatch: + %s (%s)", sp, d.name)
+
+        def drop(path: str, reason: str) -> None:
+            d = devs.pop(path, None)
+            if d is None:
+                return
+            try:
+                sel.unregister(d)
+            except (KeyError, ValueError):
+                pass
+            try:
+                d.close()
+            except OSError:
+                pass
+            log.warning("keywatch: - %s (%s)", path, reason)
+
+        for p in find_keyboards():
+            add(p)
+        if not devs:
+            log.error("keywatch: no keyboards found (is user in `input` group?)")
+            sys.exit(1)
+
+        log.info("keywatch: monitoring %d keyboard(s) for RightAlt long-press (%d ms)",
+                 len(devs), self.hold_ms)
 
         hold_start: float | None = None
         armed_pending = False  # True once hold_ms elapsed; reset on release
         other_key_during_hold = False
-
-        log.info("keywatch: monitoring %d keyboard(s) for RightAlt long-press (%d ms)",
-                 len(devs), self.hold_ms)
+        last_rescan = time.monotonic()
 
         while not self._stop.is_set():
             events = sel.select(timeout=0.05)  # 50ms granularity
@@ -146,5 +164,17 @@ class KeyWatcher:
                             if val == 1 and hold_start is not None and not armed_pending:
                                 other_key_during_hold = True
                                 log.debug("keywatch: hold cancelled (other key %d)", code)
-                except OSError:
-                    continue
+                except OSError as e:
+                    drop(dev.path, f"read failed: {e}")
+
+            if now - last_rescan >= RESCAN_SEC:
+                last_rescan = now
+                current = {str(p) for p in find_keyboards()}
+                for gone in [p for p in devs if p not in current]:
+                    drop(gone, "disappeared")
+                for p in current:
+                    if p not in devs:
+                        add(Path(p))
+                if not devs:
+                    log.error("keywatch: all keyboards gone; exiting for systemd restart")
+                    sys.exit(1)
