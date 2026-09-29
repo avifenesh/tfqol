@@ -58,7 +58,7 @@ def status() -> None:
     if statefile.exists():
         try:
             state = json.loads(statefile.read_text())
-            click.echo(f"state: {state.get('state', 'unknown')}; automatic finish after {state.get('finish_pause_ms', 5000) / 1000:g}s")
+            click.echo(f"state: {state.get('state', 'unknown')}; automatic finish after {state.get('finish_pause_ms', 2000) / 1000:g}s")
         except (OSError, ValueError):
             pass
 
@@ -69,6 +69,32 @@ def finish() -> None:
     if not _signal_daemon(signal.SIGHUP):
         raise click.ClickException("voiced is not running.")
     click.echo("finish requested")
+
+
+@main.command(name="enable-codex-input")
+def enable_codex_input() -> None:
+    """Enable accessible Codex text on its next application-menu launch."""
+    from .setup import enable_codex_accessibility
+    try:
+        path = enable_codex_accessibility()
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Configured {path}. Quit Codex fully, then reopen it from the application menu.")
+
+
+@main.command()
+def doctor() -> None:
+    """Report whether the focused field supports verified dictation."""
+    from .focus import DesktopText, FocusError, focused_window
+    try:
+        window = focused_window()
+        field = DesktopText().snapshot(window)
+        if field is None:
+            raise click.ClickException("No readable editable field found. For Codex, run voicectl enable-codex-input and restart Codex.")
+        method = 'direct accessibility editing' if field.can_delete else 'verified selection and paste' if field.paste_editable else 'unavailable'
+        click.echo(f"Input: {method}. {'Clear the selection first.' if field.selection else 'No text selected.'}")
+    except FocusError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command(name="copy")

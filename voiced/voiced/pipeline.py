@@ -2,7 +2,6 @@
 from dataclasses import dataclass
 
 from .router import RouterError
-import re
 
 
 @dataclass
@@ -27,21 +26,8 @@ def dictate(updates, stt, draft, on_state=lambda state: None, on_text=lambda tex
             result.corrected = True
         else:
             result.previews += 1
-        candidate = text
-        if not getattr(draft, "corrections_available", True):
-            # Keep the uncertain final words out of fields that cannot verify a
-            # replacement. Revisions are saved for recovery, never backspaced.
-            if not update.final:
-                words = list(re.finditer(r"\S+", text))
-                candidate = text[:words[-2].start()] if len(words) > 2 else ""
-            if not candidate.startswith(draft.typed_text):
-                if update.final:
-                    result.blocked = "This field cannot verify the final correction."
-                continue
-            if candidate == draft.typed_text:
-                continue
         try:
-            draft.update(candidate)
+            draft.update(text)
         except RouterError as exc:
             if not result.blocked:
                 on_blocked()

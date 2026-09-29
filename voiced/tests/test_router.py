@@ -53,36 +53,79 @@ class FakeDesktop:
         self.type(text)
         return self.field
 
+    def replace_suffix(self, window, expected, start, text):
+        if self.field != expected:
+            raise FocusError('field changed')
+        self.deletions.append((start, expected.caret))
+        self.insertions.append(text)
+        self.field=replace(self.field, text=expected.text[:start]+text+expected.text[expected.caret:],
+                           caret=start+len(text))
+        return self.field
+
     def writer(self):
         return DraftWriter(
             lambda: self.interrupted, get_focus=lambda: self.focus,
-            desktop=self, type_text=self.type,
+            desktop=self,
         )
 
 
 class DraftWriterTests(unittest.TestCase):
+    def test_browser_revision_uses_verified_range_and_preserves_surrounding_text(self):
+        desktop=FakeDesktop()
+        desktop.field=replace(desktop.field,can_delete=False,paste_editable=True)
+        draft=desktop.writer()
+        draft.update('the rigid image')
+        draft.update('the original image.')
+        draft.finish()
+        self.assertEqual(desktop.field.text,'prefix the original image.SUFFIX')
+        self.assertEqual(desktop.deletions[-1],(11,22))
+
+    def test_browser_shortening_never_sends_empty_paste_or_delete_keys(self):
+        desktop=FakeDesktop()
+        desktop.field=replace(desktop.field,can_delete=False,paste_editable=True)
+        draft=desktop.writer()
+        draft.update('hello world')
+        draft.update('hello')
+        self.assertEqual(desktop.field.text,'prefix helloSUFFIX')
+        self.assertEqual(desktop.insertions[-1],'o')
+        self.assertEqual(desktop.deletions[-1],(11,18))
+
+    def test_browser_escape_sequences_are_literal_clipboard_data(self):
+        desktop=FakeDesktop()
+        desktop.field=replace(desktop.field,can_delete=False,paste_editable=True)
+        draft=desktop.writer()
+        text=r'Use C:\temp\new and write \t literally.'
+        draft.update(text)
+        self.assertEqual(desktop.insertions,[text])
+        self.assertEqual(desktop.field.text,'prefix '+text+'SUFFIX')
+
+    def test_browser_field_change_stops_before_paste(self):
+        desktop=FakeDesktop()
+        desktop.field=replace(desktop.field,can_delete=False,paste_editable=True)
+        draft=desktop.writer()
+        desktop.field=replace(desktop.field,caret=0)
+        with self.assertRaises(InterruptedDraft):draft.update('never pasted')
+        self.assertEqual(desktop.insertions,[])
+
     def test_editable_field_insertion_uses_no_virtual_keyboard(self):
         desktop = FakeDesktop()
-        virtual_input = []
         draft = DraftWriter(
             lambda: False, get_focus=lambda: desktop.focus,
-            desktop=desktop, type_text=virtual_input.append,
+            desktop=desktop,
         )
-        draft.update("hello")
+        with patch("voiced.router.subprocess.run", side_effect=AssertionError("Unexpected keyboard command")):
+            draft.update("hello")
         self.assertEqual(desktop.field.text, "prefix helloSUFFIX")
-        self.assertEqual(virtual_input, [])
 
     def test_failed_accessible_insert_never_falls_back_to_typing(self):
         desktop = FakeDesktop()
-        virtual_input = []
         draft = DraftWriter(
             lambda: False, get_focus=lambda: desktop.focus,
-            desktop=desktop, type_text=virtual_input.append,
+            desktop=desktop,
         )
-        with patch.object(desktop, "insert_text", side_effect=FocusError("field changed")):
+        with patch.object(desktop, "insert_text", side_effect=FocusError("field changed")), patch("voiced.router.subprocess.run", side_effect=AssertionError("Unexpected keyboard command")):
             with self.assertRaises(InterruptedDraft):
                 draft.update("hello")
-        self.assertEqual(virtual_input, [])
         self.assertEqual(draft.recovery_text, "hello")
 
     def test_append_and_finish_preserve_initial_prefix_suffix(self):
@@ -170,18 +213,13 @@ class DraftWriterTests(unittest.TestCase):
             desktop.writer()
         self.assertEqual(desktop.insertions, [])
 
-    def test_unreadable_field_appends_but_never_blindly_rewrites(self):
+    def test_unreadable_field_is_refused_before_any_input(self):
         desktop = FakeDesktop()
         desktop.field = None
-        draft = desktop.writer()
-        self.assertFalse(draft.corrections_available)
-        draft.update("hello")
-        draft.update("hello world")
-        with self.assertRaises(InterruptedDraft):
-            draft.update("Hello, world.")
-        self.assertEqual(desktop.insertions, ["hello", " world"])
+        with self.assertRaisesRegex(InterruptedDraft, "editable text field"):
+            desktop.writer()
+        self.assertEqual(desktop.insertions, [])
         self.assertEqual(desktop.deletions, [])
-        self.assertEqual(draft.recovery_text, "Hello, world.")
 
     def test_readable_field_cannot_downgrade_to_unguarded_typing(self):
         desktop = FakeDesktop()
@@ -192,13 +230,12 @@ class DraftWriterTests(unittest.TestCase):
             draft.update("hello world")
         self.assertEqual(desktop.insertions, ["hello"])
 
-    def test_noneditable_readable_text_has_no_deletion_fallback(self):
+    def test_noneditable_field_is_refused_before_any_input(self):
         desktop = FakeDesktop()
         desktop.field = replace(desktop.field, can_delete=False)
-        draft = desktop.writer()
-        draft.update("hello")
         with self.assertRaises(InterruptedDraft):
-            draft.update("Hello.")
+            desktop.writer()
+        self.assertEqual(desktop.insertions, [])
         self.assertEqual(desktop.deletions, [])
 
     def test_halted_writer_retains_latest_final_text_without_more_input(self):
@@ -252,12 +289,12 @@ class DraftWriterTests(unittest.TestCase):
         desktop.type = type_then_interrupt
         draft = DraftWriter(
             lambda: desktop.interrupted, get_focus=lambda: desktop.focus,
-            desktop=desktop, type_text=type_then_interrupt,
+            desktop=desktop,
         )
         with self.assertRaises(InterruptedDraft):
-            draft.update("a" * 80)
-        self.assertEqual(desktop.insertions, ["a" * 32])
-        self.assertEqual(draft.recovery_text, "a" * 80)
+            draft.update("a" * 600)
+        self.assertEqual(desktop.insertions, ["a" * 256])
+        self.assertEqual(draft.recovery_text, "a" * 600)
 
     def test_unknown_focus_prevents_draft(self):
         def unknown():
@@ -447,25 +484,6 @@ class FocusTests(unittest.TestCase):
             with self.assertRaises(FocusError):
                 backend.delete_suffix(Window("test", "1", 42), TextField("f", "a", 1), 0)
 
-    @patch("voiced.router.subprocess.run")
-    @patch("voiced.router.focused_window", return_value=Window("x11", "123", 42))
-    @patch.dict(os.environ, {"DISPLAY": ":90"})
-    def test_x11_typing_never_uses_host_ydotool(self, focus, run):
-        from voiced.router import _xdotool_type
-        run.return_value = subprocess.CompletedProcess([], 0, "", "")
-        _xdotool_type(Window("x11", "123", 42), "hello")
-        self.assertEqual(run.call_args.args[0][0], "xdotool")
-        self.assertNotIn("--window", run.call_args.args[0])
-        self.assertNotIn("ydotool", run.call_args.args[0])
-
-    @patch("voiced.router.subprocess.run")
-    @patch("voiced.router.focused_window", return_value=Window("x11", "124", 42))
-    @patch.dict(os.environ, {"DISPLAY": ":90"})
-    def test_x11_fallback_refuses_focus_change_before_xtest(self, focus, run):
-        from voiced.router import _xdotool_type, RouterError
-        with self.assertRaises(RouterError):
-            _xdotool_type(Window("x11", "123", 42), "hello")
-        run.assert_not_called()
 
 
 if __name__ == "__main__":

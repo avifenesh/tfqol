@@ -1,12 +1,10 @@
-"""Inject text via ydotool into whichever window is focused right now."""
+"""Update only a verified editable field through accessibility operations."""
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 from collections.abc import Callable
-from dataclasses import replace
 
 from .focus import DesktopText, FocusError, TextField, Window, focused_window
 
@@ -38,12 +36,10 @@ class DraftWriter:
         self, interrupted: Callable[[], bool], *,
         get_focus: Callable[[], Window] = focused_window,
         desktop: DesktopText | None = None,
-        type_text: Callable[[str], None] | None = None,
     ) -> None:
         self._interrupted = interrupted
         self._get_focus = get_focus
         self._desktop = desktop if desktop is not None else DesktopText()
-        self._type = type_text
         self.latest_text = ""
         self.typed_text = ""
         self.halted = False
@@ -54,15 +50,13 @@ class DraftWriter:
             self._field = self._desktop.snapshot(self._window)
             if self._get_focus() != self._window or self._interrupted():
                 self._halt("Focus or input changed; dictation stopped")
-            if self._field is not None and self._field.selection:
+            if self._field is None or not (self._field.can_delete or self._field.paste_editable):
+                self._halt("This app does not expose an editable text field. Enable its accessibility support, restart it, and try again.")
+            if self._field.selection:
                 self._halt("Clear the text selection before dictating")
         except FocusError as exc:
             self._halt(str(exc))
-        self._start = self._field.caret if self._field is not None else None
-        if self._type is None:
-            self._type = (
-                lambda text: _xdotool_type(self._window, text)
-            ) if self._window.backend == "x11" else _ydotool_type
+        self._start = self._field.caret
 
     @property
     def recovery_text(self) -> str:
@@ -70,7 +64,7 @@ class DraftWriter:
 
     @property
     def corrections_available(self) -> bool:
-        return self._field is not None and self._field.can_delete
+        return self._field is not None and (self._field.can_delete or self._field.paste_editable)
 
     def _halt(self, reason: str) -> None:
         self.halted = True
@@ -101,8 +95,8 @@ class DraftWriter:
             self._halt(str(exc))
 
     def update(self, text: str) -> None:
-        # Speech is a single draft, never a command submission. Literal newlines
-        # would become Enter keypresses in ydotool and can execute terminal input.
+        # Keep one draft in one field. The clipboard path sends only Paste;
+        # dictated characters are never interpreted as keyboard events.
         self.latest_text = text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
         if any(ord(char) < 32 or ord(char) == 127 for char in self.latest_text):
             self._halt("Control characters cannot be dictated safely")
@@ -112,6 +106,41 @@ class DraftWriter:
             if old != new:
                 break
             prefix += 1
+        if current.paste_editable:
+            if self.typed_text == self.latest_text:
+                return
+            if not self.latest_text:
+                return  # a missing transcript must never erase the draft
+            if prefix == len(self.latest_text):
+                # An empty clipboard paste may be ignored by browsers. Include
+                # one owned character so a shortened hypothesis is replaced by
+                # a normal, nonempty paste without any Delete/Backspace keys.
+                prefix = max(0, prefix - 1)
+            start = self._start + prefix
+            if (current.caret != self._start + len(self.typed_text)
+                    or current.text[self._start:current.caret] != self.typed_text):
+                self._halt("The draft changed; correction stopped")
+            try:
+                changed = self._desktop.replace_suffix(self._window, current, start,
+                                                       self.latest_text[prefix:])
+            except FocusError as exc:
+                self._halt(str(exc))
+            wanted = current.text[:self._start] + self.latest_text + current.text[current.caret:]
+            same = changed.identity == current.identity or (
+                current.empty_editor and current.caret == 0
+                and changed.editor_identity == (current.editor_identity or current.identity)
+            )
+            matched = changed.text == wanted or (
+                current.empty_editor and current.text == "\n"
+                and current.caret == self._start == 0 and not self.typed_text
+                and changed.text == self.latest_text
+            )
+            if (not same or not matched
+                    or changed.caret != self._start + len(self.latest_text) or changed.selection):
+                self._halt("The pasted text did not match the expected draft")
+            self._field = changed
+            self.typed_text = self.latest_text
+            return
         if prefix < len(self.typed_text):
             if current is None or not current.can_delete or self._start is None:
                 self._halt("This field cannot verify corrections; final text is available to copy")
@@ -133,27 +162,20 @@ class DraftWriter:
             self._field = changed
             self.typed_text = self.typed_text[:prefix]
         addition = self.latest_text[len(self.typed_text):]
-        # Bound virtual-key bursts so physical input can stop a long insertion.
-        for offset in range(0, len(addition), 32):
-            piece = addition[offset:offset + 32]
+        # Each insertion is addressed to the exact editable object, not to the
+        # application's keyboard shortcut dispatcher.
+        for offset in range(0, len(addition), 256):
+            piece = addition[offset:offset + 256]
             field = self._guard()
             try:
-                if field is not None and field.can_delete:
-                    changed = self._desktop.insert_text(self._window, field, piece)
-                    wanted = field.text[:field.caret] + piece + field.text[field.caret:]
-                    if (changed.identity != field.identity or changed.text != wanted
-                            or changed.caret != field.caret + len(piece) or changed.selection):
-                        self._halt("Insertion stopped; the field changed")
-                    self._field = changed
-                else:
-                    self._type(piece)
-                    if field is not None:
-                        self._field = replace(
-                            field, text=field.text[:field.caret] + piece + field.text[field.caret:],
-                            caret=field.caret + len(piece),
-                        )
-            except (OSError, subprocess.SubprocessError, RouterError, FocusError) as exc:
-                self._halt(f"Typing stopped: {exc}")
+                changed = self._desktop.insert_text(self._window, field, piece)
+                wanted = field.text[:field.caret] + piece + field.text[field.caret:]
+                if (changed.identity != field.identity or changed.text != wanted
+                        or changed.caret != field.caret + len(piece) or changed.selection):
+                    self._halt("Insertion stopped; the field changed")
+                self._field = changed
+            except (OSError, subprocess.SubprocessError, FocusError) as exc:
+                self._halt(f"Text editing stopped: {exc}")
             self.typed_text += piece
 
     def finish(self) -> str:
@@ -164,66 +186,9 @@ class DraftWriter:
         return self.latest_text
 
 
-def _xdotool_type(window: Window, text: str) -> None:
-    """Use only the selected X server; never inject into host uinput in X11 QA."""
-    if not os.environ.get("DISPLAY") or focused_window() != window:
-        raise RouterError("X11 focus changed; text insertion stopped")
-    result = subprocess.run(
-        ["xdotool", "type", "--clearmodifiers", "--delay", "2", "--", text],
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode:
-        raise RouterError("X11 text insertion failed")
-
-
-def _ydotool_available() -> bool:
-    return shutil.which("ydotool") is not None
-
-
-def _ydotool_type(text: str) -> None:
-    if not text:
-        return
-    if not _ydotool_available():
-        raise RouterError("ydotool not installed")
-    log.debug("ydotool type (%d chars)", len(text))
-    res = subprocess.run(
-        ["ydotool", "type", "--key-delay", "2", "--", text],
-        capture_output=True, text=True, timeout=10,
-    )
-    if res.returncode != 0:
-        raise RouterError(
-            f"ydotool type failed (rc={res.returncode}): "
-            f"stderr={res.stderr.strip()!r} stdout={res.stdout.strip()!r}"
-        )
-
-
-def _ydotool_enter() -> None:
-    if not _ydotool_available():
-        raise RouterError("ydotool not installed")
-    res = subprocess.run(
-        ["ydotool", "key", "28:1", "28:0"],
-        capture_output=True, text=True,
-    )
-    if res.returncode != 0:
-        raise RouterError(f"ydotool enter failed: {res.stderr.strip()}")
-
-
-def type_text_focused(text: str, *, send: bool = False) -> None:
-    """Type text into whatever window currently has keyboard focus.
-
-    Relies on the compositor's current focus: no window management done here.
-    If send=True, presses Enter after typing.
-    """
-    if text:
-        _ydotool_type(text)
-    if send:
-        _ydotool_enter()
-
 
 def check_prereqs() -> list[str]:
-    problems: list[str] = []
-    if not _ydotool_available():
-        problems.append("ydotool not in PATH: install and enable user service")
-    if not os.access("/dev/uinput", os.W_OK):
-        log.debug("/dev/uinput not user-writable; relying on ydotoold")
+    problems = []
+    if shutil.which("gdbus") is None:
+        problems.append("gdbus is not installed; it is needed to verify desktop focus")
     return problems

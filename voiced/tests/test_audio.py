@@ -100,7 +100,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_brief_pause_continues_and_long_pause_closes_during_slow_decode(self):
         stream = FakeStream([1] * 10)
-        updates, _ = self.capture(stream)
+        updates, _ = self.capture(stream, replace(self.settings, session_silence_ms=5000))
         first = next(updates)
         self.assertFalse(first.final)
         self.assertEqual(len(first.pcm), 10 * 480)
@@ -118,6 +118,25 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(len(final.pcm), 130 * 480)
         self.assertEqual(np.count_nonzero(final.pcm == 1), 10 * 480)
         self.assertEqual(np.count_nonzero(final.pcm == 2), 10 * 480)
+        self.assertEqual(list(updates), [])
+
+    def test_default_two_second_pause_closes_and_preserves_complete_speech(self):
+        self.assertEqual(self.settings.session_silence_ms, 2000)
+        stream = FakeStream([1] * 10)
+        updates, _ = self.capture(stream)
+        self.assertFalse(next(updates).final)
+        # 66 frames are 1.98 seconds. The next 30 ms frame reaches the
+        # two-second deadline while the consumer is busy decoding its draft.
+        stream.feed([0] * 66)
+        self.assertTrue(self.vad.wait_for(76))
+        self.assertFalse(stream.closed.is_set())
+        stream.feed([0])
+        self.assertTrue(stream.closed.wait(1))
+        final = next(updates)
+        self.assertTrue(final.final)
+        self.assertEqual(self.vad.consumed, 77)
+        self.assertEqual(np.count_nonzero(final.pcm == 1), 10 * 480)
+        self.assertEqual(final.seconds, 0.6, "the final pass retains speech and a short tail")
         self.assertEqual(list(updates), [])
 
     def test_latest_preview_replaces_queued_revisions(self):
@@ -139,7 +158,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_isolated_vad_blips_do_not_reset_the_finish_pause(self):
         stream = FakeStream([1] * 10)
-        updates, _ = self.capture(stream)
+        updates, _ = self.capture(stream, replace(self.settings, session_silence_ms=5000))
         next(updates)
         pause = [0] * 167
         for index in (30, 70, 110, 150):
@@ -153,7 +172,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_resumed_short_word_at_deadline_gets_confirmation_time(self):
         stream = FakeStream([1] * 10)
-        updates, _ = self.capture(stream)
+        updates, _ = self.capture(stream, replace(self.settings, session_silence_ms=5000))
         next(updates)
         # This 150 ms word straddles the original five-second deadline.
         stream.feed([0] * 164 + [2] * 5)
@@ -168,7 +187,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_blip_at_deadline_gets_only_one_bounded_confirmation_window(self):
         stream = FakeStream([1] * 10)
-        updates, _ = self.capture(stream)
+        updates, _ = self.capture(stream, replace(self.settings, session_silence_ms=5000))
         next(updates)
         stream.feed([0] * 165 + [2] + [0] * 11)
         self.assertTrue(stream.closed.wait(1))
@@ -179,7 +198,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_waiting_for_pause_does_not_redecode_unchanged_speech(self):
         stream = FakeStream([1] * 10)
-        updates, _ = self.capture(stream)
+        updates, _ = self.capture(stream, replace(self.settings, session_silence_ms=5000))
         with patch.object(audio, "AudioUpdate", wraps=audio.AudioUpdate) as snapshots:
             next(updates)
             stream.feed([0] * 100)

@@ -1,7 +1,7 @@
 # voiced
 
 Local streaming dictation for Linux. Hold **RightAlt for 500 ms**, then release
-and speak. Text appears in the focused field while you talk. After **five seconds
+and speak. Text appears in the focused field while you talk. After **two seconds
 of quiet**, voiced closes the microphone and decodes the complete utterance again
 with a wider search to correct recognition and punctuation. It never presses Enter.
 
@@ -16,11 +16,38 @@ original field, caret, and surrounding text. It checks those before each update
 and replaces only the changed part of its own draft. If the application or user
 changes the field, it stops instead of guessing which characters to erase.
 
-Some terminals and applications do not expose a verifiable editable field. In
-those, voiced streams extending text while holding back the last two provisional
-words. It never backspaces blindly. If the final pass needs to change text already
-inserted, the final transcript is kept for `voicectl copy` instead. Full automatic
-correction therefore depends on the destination application's accessibility support.
+Chromium and Electron expose text and selection but usually lack the direct
+editable-text API. Voiced resolves the focused paragraph, verifies the exact draft
+range, selects only that range, and pastes literal text. Only a fixed Paste chord
+is sent. Dictated characters never become key commands, so strings such as `\t`
+remain text. Shortened corrections use a nonempty replacement instead of Delete
+or Backspace. The resulting text and caret are read back before continuing.
+
+Fields with no verifiable text interface are refused before recording. There is
+no raw-keyboard fallback. Terminal scrollback is not treated as an editable field.
+The latest interrupted transcript is still available through `voicectl copy`.
+
+For Codex Desktop, run this once and then **quit Codex fully and reopen it from
+the application menu**:
+
+```sh
+voicectl enable-codex-input
+```
+
+This creates a user desktop-entry override adding `--force-renderer-accessibility`.
+It preserves existing launch arguments and actions and does not restart Codex.
+An app that was started without accessibility cannot be repaired by changing its
+next-launch flags alone. `voicectl doctor` reports the capability of whichever
+field currently has focus.
+
+Confirmed clipboard edits preserve the original advertised MIME formats and bytes unless
+another application changes clipboard ownership during the operation. On GNOME,
+this uses the XWayland clipboard bridge (`DISPLAY` and `XAUTHORITY` from the desktop
+session). If there is no clipboard manager, a small helper retains the restored
+clipboard until the next copy, service stop, or logout. If paste completion cannot
+be verified, the helper keeps the dictated text available for a possible late
+paste; it does not restore unrelated clipboard data into that pending request. Unreadable or oversized clipboards are
+refused before mutation (32 formats, 16 MiB).
 
 The second pass is another speech recognition pass over the recorded audio. It
 uses the same local model and does not send text to a language-model service or
@@ -31,11 +58,13 @@ paraphrase your words. The default model is English-only.
 Requirements:
 
 - Linux, Python 3.11+, `uv`, and `libportaudio2`.
-- `ydotoold` running for fields that need keyboard input.
+- `ydotoold` running for the fixed Paste chord on GNOME; `xdotool` on X11.
 - User access to keyboard and pointer devices in `/dev/input` (usually the
   `input` group).
 - For safe corrections: system `/usr/bin/python3` with PyGObject and Atspi 2.0
   bindings, a working desktop accessibility bus, and an accessible editable field.
+- For Chromium/Electron pasting: Gdk/GTK 4 Python introspection bindings and
+  an authenticated X11 display or XWayland clipboard bridge.
 - GNOME Wayland: the existing Computer Use Linux or Codex window-control extension
   for identifying focus. X11: `xdotool`.
 
@@ -52,7 +81,7 @@ systemctl --user enable --now voiced
 ```
 
 On Debian/Ubuntu, accessibility bindings come from `python3-gi` and
-`gir1.2-atspi-2.0`. The system interpreter handles accessibility separately from
+`gir1.2-atspi-2.0`; the clipboard helper also needs `gir1.2-gtk-4.0`. The system interpreter handles accessibility separately from
 the speech virtual environment.
 
 ## Configuration
@@ -62,7 +91,7 @@ The microphone is closed when idle; the loaded model stays resident for reuse.
 
 | Setting | Default | Behavior |
 |---|---|---|
-| `VOICED_PAUSE_MS` | `5000` | Quiet period before automatic finish |
+| `VOICED_PAUSE_MS` | `2000` | Quiet period before automatic finish |
 | `VOICED_INPUT` | System default | Input device name substring |
 | `hold_ms` | `500` | RightAlt activation hold |
 | `stream_interval_ms` | `1200` | Minimum new audio before a draft update; decoding adds latency |
@@ -75,7 +104,7 @@ The last five settings are in `voiced/config.py`. Set environment overrides with
 
 ```ini
 [Service]
-Environment=VOICED_PAUSE_MS=6000
+Environment=VOICED_PAUSE_MS=2000
 ```
 
 Then run `systemctl --user restart voiced`.
@@ -109,10 +138,9 @@ and timing information, not dictated text; log files rotate at 2 MB.
 - Cursor, field, focus, selection, or physical-input changes stop edits. No Ctrl+A,
   automatic refocus, or blind Backspace correction is used.
 
-If a particular application has no editable accessibility interface, use
-`voicectl copy` for corrections. Newly launched applications may be needed after
-repairing a broken accessibility bus. Password fields with accessible protection
-information are rejected.
+If an application has no readable focused text field, dictation refuses to start.
+For Codex, enable the startup flag above and restart the application. Password
+fields with accessible protection information are rejected.
 
 ## Verification
 
