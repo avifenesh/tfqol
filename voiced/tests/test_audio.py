@@ -300,7 +300,7 @@ class CaptureTests(unittest.TestCase):
         next(updates)
         try:
             with patch.object(audio, "_CAPTURE_STOP_TIMEOUT", 0.01):
-                with self.assertRaisesRegex(audio.AudioCaptureError, "closure is unconfirmed"):
+                with self.assertRaisesRegex(audio.AudioShutdownError, "closure is unconfirmed"):
                     updates.close()
             self.assertFalse(stream.closed.is_set())
         finally:
@@ -316,7 +316,7 @@ class CaptureTests(unittest.TestCase):
         self.finish.set()
         try:
             with patch.object(audio, "_CAPTURE_STOP_TIMEOUT", 0.01):
-                with self.assertRaisesRegex(audio.AudioCaptureError, "closure is unconfirmed"):
+                with self.assertRaisesRegex(audio.AudioShutdownError, "closure is unconfirmed"):
                     list(updates)
             self.assertFalse(stream.closed.is_set())
         finally:

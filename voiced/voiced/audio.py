@@ -48,6 +48,10 @@ class AudioCaptureError(RuntimeError):
     """Capture failed; its incomplete audio must not be treated as final."""
 
 
+class AudioShutdownError(AudioCaptureError):
+    """The capture thread is still alive; only process exit guarantees release."""
+
+
 def _resolve_device(name: str | None) -> int | None:
     if not name:
         return None
@@ -277,7 +281,7 @@ def record_updates(
                     worker.join(timeout=_CAPTURE_STOP_TIMEOUT)
                     if worker.is_alive():
                         shutdown_timed_out = True
-                        raise AudioCaptureError(
+                        raise AudioShutdownError(
                             "Microphone shutdown timed out; closure is unconfirmed. Restart voiced."
                         )
                 continue
@@ -292,7 +296,7 @@ def record_updates(
         stop.set()
         worker.join(timeout=0 if shutdown_timed_out else _CAPTURE_STOP_TIMEOUT)
         if worker.is_alive() and not shutdown_timed_out:
-            raise AudioCaptureError(
+            raise AudioShutdownError(
                 "Microphone shutdown timed out; closure is unconfirmed. Restart voiced."
             )
 

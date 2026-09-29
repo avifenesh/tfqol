@@ -143,6 +143,8 @@ class Daemon:
             self._cancel.set()
 
     def _on_arm(self) -> None:
+        if self._stop.is_set():
+            return
         if MUTEFILE.exists():
             _notify("voiced is muted", "Run voicectl unmute to enable dictation.")
             return
@@ -176,6 +178,12 @@ class Daemon:
                 _notify("voiced", "Dictation corrected. Review before sending." if result.corrected else "Draft kept. No final correction was available.")
             log.info("session finished: previews=%d final=%s blocked=%s", result.previews,
                      result.corrected, bool(result.blocked))
+        except audio.AudioShutdownError:
+            self._cancel.set()
+            self._stop.set()
+            log.exception("audio shutdown is unconfirmed; exiting for service restart")
+            self._set_state("error")
+            _notify("voiced", "The audio device could not close. Restarting dictation.")
         except Exception:
             log.exception("dictation session failed")
             self._set_state("error")
