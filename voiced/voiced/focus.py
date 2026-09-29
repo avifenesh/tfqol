@@ -26,6 +26,7 @@ class Window:
     backend: str
     identity: str
     pid: int = 0
+    client_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,8 @@ def focused_window() -> Window:
             identity = str(window["window_id"])
             if not identity.isdecimal():
                 raise FocusError("Invalid focused window")
-            return Window("gnome", identity, int(window.get("pid") or 0))
+            return Window("gnome", identity, int(window.get("pid") or 0),
+                          str(window.get("client_type") or ""))
         except (FocusError, SyntaxError, ValueError, TypeError, KeyError):
             continue
     raise FocusError("Cannot identify focus; enable the GNOME window-control extension")
@@ -538,7 +540,9 @@ def _verified_paste(Atspi, window, node, field, expected, request):
         raise FocusError("The field or replacement range is no longer valid")
     wanted = field.text[:start] + addition + field.text[field.caret:]
     target_caret = start + len(addition)
-    clip = Clipboard(window.backend)
+    # Codex currently runs through XWayland on GNOME. Use the same X11 paste
+    # transport as the verified Chromium path for that exact client type.
+    clip = Clipboard("x11" if window.client_type == "x11" else window.backend)
     selected = False
     paste_started = False
     confirmed = False

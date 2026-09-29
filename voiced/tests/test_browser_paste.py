@@ -8,18 +8,19 @@ from voiced import clipboard,focus
 
 class BrowserPasteTests(unittest.TestCase):
     def setUp(self):
-        self.window=focus.Window('x11','100',42)
+        self.window=focus.Window('gnome','100',42,client_type='x11')
         self.field=focus.TextField('42:/field','before bad after',10,paste_editable=True)
         self.current=self.field
         self.bounds=None
         self.events=[]
+        self.backends=[]
         self.wrong_selection=False
         self.change_on_snapshot=False
         self.wrong_paste=False
         self.node=object()
         case=self
         class Clip:
-            def __init__(self,backend):self.text=''
+            def __init__(self,backend):self.text='';case.backends.append(backend)
             def snapshot(self):
                 case.events.append('snapshot')
                 if case.change_on_snapshot:case.current=replace(case.current,caret=0)
@@ -63,6 +64,7 @@ class BrowserPasteTests(unittest.TestCase):
         result=self.request()
         self.assertEqual(result['field']['text'],'before good after')
         self.assertEqual(self.events,['snapshot','paste','restore'])
+        self.assertEqual(self.backends,['x11'])
         self.assertFalse(self.current.selection)
 
     def test_changed_field_after_snapshot_never_gets_paste(self):
