@@ -1,4 +1,4 @@
-# tfqol — tools for quality of life
+# tfqol: tools for quality of life
 
 Small, focused Linux utilities I built for myself. Each tool is self-contained
 under its own subdirectory with its own `README.md`, `pyproject.toml`, and
@@ -8,7 +8,7 @@ runtime.
 
 | tool | what |
 |---|---|
-| [`voiced/`](./voiced) | Push-to-talk voice dictation. Hold RightAlt → speak → stop → transcription lands in the focused window. CPU Whisper, no wake word, no always-on mic. |
+| [`voiced/`](./voiced) | Push-to-talk voice dictation. Hold RightAlt, then speak. Live text appears in the focused field; a five-second pause triggers a final correction. Local CPU Whisper. |
 
 ## Design principles
 
@@ -20,4 +20,4 @@ runtime.
   tool, not a good switch.
 - **No surprise actions.** A dictation tool types; it doesn't press Enter. A
   focus switcher focuses; it doesn't type. User presses the commit button.
-- **Small, readable code.** Each tool under ~500 lines. Uninstall = `rm -rf`.
+- **Small, readable code.** Each tool has a focused scope and a separate runtime. Uninstall = `rm -rf`.

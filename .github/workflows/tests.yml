@@ -1,0 +1,20 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  voiced:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      - run: uv sync --frozen --project voiced
+      - name: CPU contracts
+        run: uv run --project voiced python -m unittest discover -s voiced/tests -v
+        env:
+          PYTHONPATH: voiced
