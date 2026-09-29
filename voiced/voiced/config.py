@@ -26,7 +26,7 @@ class Settings:
     frame_ms: int = 30
     vad_aggressiveness: int = 2
     preroll_ms: int = 300
-    session_silence_ms: int = int(os.environ.get("VOICED_PAUSE_MS", "5000"))
+    session_silence_ms: int = int(os.environ.get("VOICED_PAUSE_MS", "2000"))
     stream_interval_ms: int = 1200
     final_beam: int = 5
     max_session_seconds: float = 60.0

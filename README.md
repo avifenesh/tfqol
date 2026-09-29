@@ -8,7 +8,7 @@ runtime.
 
 | tool | what |
 |---|---|
-| [`voiced/`](./voiced) | Push-to-talk voice dictation. Hold RightAlt, then speak. Live text appears in the focused field; a five-second pause triggers a final correction. Local CPU Whisper. |
+| [`voiced/`](./voiced) | Push-to-talk voice dictation. Hold RightAlt, then speak. Live text appears in the focused field; a two-second pause triggers a final correction. Local CPU Whisper. |
 
 ## Design principles
 

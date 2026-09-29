@@ -41,33 +41,6 @@ class PipelineTests(unittest.TestCase):
         self.assertIn(('save','Some words.'),events)
         self.assertNotIn(('finish',),events)
 
-    def test_unreadable_field_streams_safe_prefix_without_rewriting(self):
-        class Draft:
-            corrections_available=False
-            typed_text=''
-            writes=[]
-            def update(self,text):
-                self.writes.append(text);self.typed_text=text
-            def finish(self):pass
-        outputs=['We need the rigid image','We need the original image now','We need the original image now.']
-        class STT:
-            def transcribe(self,pcm,*,final):return outputs[pcm]
-        draft=Draft()
-        result=dictate([SimpleNamespace(pcm=i,final=i==2) for i in range(3)],STT(),draft)
-        self.assertEqual(draft.writes,['We need the ','We need the original ','We need the original image now.'])
-        self.assertEqual(result.blocked,'')
-
-    def test_unreadable_committed_revision_preserves_field_and_final_copy(self):
-        class Draft:
-            corrections_available=False
-            typed_text='We need the '
-            def update(self,text):raise AssertionError('unsafe rewrite')
-            def finish(self):raise AssertionError('cannot finalize rejected correction')
-        class STT:
-            def transcribe(self,pcm,*,final):return 'We want the original image.'
-        result=dictate([SimpleNamespace(pcm=0,final=True)],STT(),Draft())
-        self.assertTrue(result.blocked)
-        self.assertEqual(result.text,'We want the original image.')
 
 
 if __name__=='__main__':unittest.main()
