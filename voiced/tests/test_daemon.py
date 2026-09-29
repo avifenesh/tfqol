@@ -48,6 +48,20 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(self.d._interaction_epoch,1)
         self.d._busy.release()
 
+    def test_service_stop_with_unjoined_worker_also_requires_hard_exit(self):
+        self.d._worker=Mock()
+        self.d._worker.is_alive.return_value=True
+        self.d._stop.set()
+        patch.object(daemon,'ensure_dirs').start()
+        patch.object(daemon,'PIDFILE',self.path/'voiced.pid').start()
+        patch.object(daemon,'KeyWatcher').start()
+        patch.object(daemon.signal,'signal').start()
+        with self.assertLogs('voiced',level='ERROR'):
+            self.d.run()
+        self.assertTrue(self.d.audio_shutdown_failed)
+        self.d._worker.join.assert_called_once_with(timeout=5)
+        self.assertFalse((self.path/'voiced.pid').exists())
+
     def test_start_refusal_explains_reason_and_clears_previous_text(self):
         previous=self.path/'latest.txt'
         previous.write_text('previous dictation')

@@ -115,6 +115,12 @@ class Daemon:
             self._cancel.set()
             if self._worker:
                 self._worker.join(timeout=5)
+                if self._worker.is_alive():
+                    # A slow decoder can prevent the iterator from reporting a
+                    # stuck close before shutdown. Do not enter native atexit
+                    # cleanup while any dictation worker remains alive.
+                    self.audio_shutdown_failed = True
+                    log.error("dictation worker did not stop; exiting without native cleanup")
             try:
                 PIDFILE.unlink(missing_ok=True)
                 STATEFILE.unlink(missing_ok=True)
