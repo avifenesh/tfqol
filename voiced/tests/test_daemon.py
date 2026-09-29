@@ -45,6 +45,19 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(self.d._interaction_epoch,1)
         self.d._busy.release()
 
+    def test_start_refusal_explains_reason_and_clears_previous_text(self):
+        previous=self.path/'latest.txt'
+        previous.write_text('previous dictation')
+        patch.object(daemon.router,'DraftWriter',side_effect=daemon.router.InterruptedDraft('Clear the text selection before dictating')).start()
+        capture=patch.object(daemon.audio,'record_updates').start()
+        self.d._busy.acquire()
+        self.d._session(0)
+        self.assertFalse(previous.exists())
+        self.assertFalse(self.d._busy.locked())
+        self.assertEqual(self.d._state,'interrupted')
+        self.notify.assert_called_once_with('voiced cannot start','Clear the text selection before dictating')
+        capture.assert_not_called()
+
     def test_latest_recovery_is_private_and_replaced(self):
         self.d._remember('old')
         self.d._remember('corrected')

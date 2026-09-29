@@ -160,8 +160,8 @@ class Daemon:
 
     def _session(self, epoch) -> None:
         try:
-            draft = router.DraftWriter(lambda: self._cancel.is_set() or self._interaction_epoch != epoch)
             RECOVERY.unlink(missing_ok=True)
+            draft = router.DraftWriter(lambda: self._cancel.is_set() or self._interaction_epoch != epoch)
             self._set_state("listening")
             _notify("voiced", f"Listening. Pause {self.s.session_silence_ms / 1000:g}s to finish, or tap RightAlt.")
             with closing(audio.record_updates(self.s, self._cancel, self._finish)) as updates:
@@ -178,6 +178,11 @@ class Daemon:
                 _notify("voiced", "Dictation corrected. Review before sending." if result.corrected else "Draft kept. No final correction was available.")
             log.info("session finished: previews=%d final=%s blocked=%s", result.previews,
                      result.corrected, bool(result.blocked))
+        except router.RouterError as exc:
+            self._cancel.set()
+            self._set_state("interrupted")
+            _notify("voiced cannot start", str(exc))
+            log.info("dictation start refused: %s", exc)
         except audio.AudioShutdownError:
             self._cancel.set()
             self._stop.set()
