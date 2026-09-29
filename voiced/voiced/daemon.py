@@ -62,6 +62,7 @@ class Daemon:
         self._interaction_epoch = 0
         self._worker = None
         self._state = None
+        self.audio_shutdown_failed = False
 
     def _set_state(self, state):
         if self._state == state:
@@ -184,6 +185,7 @@ class Daemon:
             _notify("voiced cannot start", str(exc))
             log.info("dictation start refused: %s", exc)
         except audio.AudioShutdownError:
+            self.audio_shutdown_failed = True
             self._cancel.set()
             self._stop.set()
             log.exception("audio shutdown is unconfirmed; exiting for service restart")
@@ -209,7 +211,13 @@ def main(argv: list[str] | None = None) -> int:
         except BlockingIOError:
             log.error("voiced is already running")
             return 1
-        return Daemon(DEFAULT).run()
+        daemon = Daemon(DEFAULT)
+        result = daemon.run()
+        if daemon.audio_shutdown_failed:
+            # PortAudio's normal atexit handler may wait for the same stuck
+            # native thread. Bypass it so systemd can start a clean process.
+            os._exit(1)
+        return result
 
 
 if __name__ == "__main__":

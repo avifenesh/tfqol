@@ -1,5 +1,7 @@
 import sys
 import tempfile
+import subprocess
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,6 +34,7 @@ class DaemonTests(unittest.TestCase):
         with self.assertLogs('voiced',level='ERROR'):
             self.d._session(0)
         self.assertTrue(self.d._stop.is_set())
+        self.assertTrue(self.d.audio_shutdown_failed)
         self.assertTrue(self.d._cancel.is_set())
         self.assertFalse(self.d._busy.locked())
         with patch.object(daemon.threading,'Thread') as thread:
@@ -64,6 +67,30 @@ class DaemonTests(unittest.TestCase):
         p=self.path/'latest.txt'
         self.assertEqual(p.read_text(),'corrected')
         self.assertEqual(p.stat().st_mode & 0o777,0o600)
+
+    def test_fatal_exit_bypasses_backend_atexit_handler(self):
+        # A subprocess is necessary: a mocked os._exit would not establish
+        # whether the native library's registered cleanup runs.
+        marker=self.path/'atexit-ran'
+        program=textwrap.dedent('''
+            import atexit, sys
+            from pathlib import Path
+            from types import SimpleNamespace
+            from unittest.mock import patch
+            with patch.dict(sys.modules, {'sounddevice': SimpleNamespace()}):
+                from voiced import daemon
+            atexit.register(lambda: Path(sys.argv[1]).write_text('cleanup ran'))
+            class FailedDaemon:
+                audio_shutdown_failed=True
+                def __init__(self, settings): pass
+                def run(self): return 0
+            with patch.object(daemon,'Daemon',FailedDaemon), patch.object(daemon,'setup_logging'), patch.object(daemon,'RUNTIME_DIR',Path(sys.argv[2])):
+                daemon.main([])
+        ''')
+        result=subprocess.run([sys.executable,'-c',program,str(marker),str(self.path)],
+                              capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,1,result.stderr)
+        self.assertFalse(marker.exists())
 
 
 if __name__=='__main__':unittest.main()
