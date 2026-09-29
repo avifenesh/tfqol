@@ -1,5 +1,5 @@
 [Unit]
-Description=voiced — push-to-talk voice dictation
+Description=voiced: streaming voice dictation
 After=graphical-session.target pipewire.service ydotool.service
 Wants=pipewire.service ydotool.service
 PartOf=graphical-session.target
@@ -11,6 +11,9 @@ ExecStart=%h/projects/tfqol/voiced/.venv/bin/voiced
 Restart=always
 RestartSec=1
 Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=2
+CPUQuota=200%
+Nice=10
 # If you want the BT mic specifically, uncomment:
 # Environment=VOICED_INPUT=bluez
 

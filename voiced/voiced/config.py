@@ -26,7 +26,10 @@ class Settings:
     frame_ms: int = 30
     vad_aggressiveness: int = 2
     preroll_ms: int = 300
-    session_silence_ms: int = 2000  # end a session after this much quiet
+    session_silence_ms: int = int(os.environ.get("VOICED_PAUSE_MS", "5000"))
+    stream_interval_ms: int = 1200
+    final_beam: int = 5
+    max_session_seconds: float = 60.0
     input_device_name: str | None = os.environ.get("VOICED_INPUT") or None
 
     # key trigger
@@ -35,7 +38,7 @@ class Settings:
     # stt
     whisper_model: str = "distil-small.en"
     whisper_compute: str = "int8"
-    whisper_threads: int = 4
+    whisper_threads: int = 2
     whisper_beam: int = 1
 
 
