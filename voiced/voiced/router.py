@@ -189,6 +189,9 @@ class DraftWriter:
 
 def check_prereqs() -> list[str]:
     problems = []
-    if shutil.which("gdbus") is None:
-        problems.append("gdbus is not installed; it is needed to verify desktop focus")
+    for name, purpose in (("gdbus", "verify desktop focus"),
+                          ("xdotool", "paste into X11 and XWayland editors"),
+                          ("ydotool", "paste into native Wayland editors")):
+        if shutil.which(name) is None:
+            problems.append(f"{name} is not installed; it is needed to {purpose}")
     return problems

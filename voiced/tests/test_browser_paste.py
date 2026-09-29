@@ -73,6 +73,11 @@ class BrowserPasteTests(unittest.TestCase):
         self.assertNotIn('paste',self.events)
         self.assertIn('restore',self.events)
 
+    def test_missing_sender_reason_reaches_the_caller(self):
+        with patch.object(clipboard,'Clipboard',side_effect=clipboard.ClipboardError('Install xdotool to paste into this editor')):
+            with self.assertRaisesRegex(focus.FocusError,'Install xdotool'):self.request()
+        self.assertEqual(self.events,[])
+
     def test_wrong_selection_never_gets_paste(self):
         self.wrong_selection=True
         with self.assertRaises(focus.FocusError):self.request()

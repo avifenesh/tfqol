@@ -542,7 +542,10 @@ def _verified_paste(Atspi, window, node, field, expected, request):
     target_caret = start + len(addition)
     # Codex currently runs through XWayland on GNOME. Use the same X11 paste
     # transport as the verified Chromium path for that exact client type.
-    clip = Clipboard("x11" if window.client_type == "x11" else window.backend)
+    try:
+        clip = Clipboard("x11" if window.client_type == "x11" else window.backend)
+    except ClipboardError as exc:
+        raise FocusError(str(exc)) from exc
     selected = False
     paste_started = False
     confirmed = False

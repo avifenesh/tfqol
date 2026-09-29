@@ -11,6 +11,7 @@ import ctypes
 import math
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -126,6 +127,9 @@ class Clipboard:
     def __init__(self, window_backend: str):
         if window_backend not in ("x11", "gnome"):
             raise ClipboardError("Unsupported clipboard desktop")
+        sender = "xdotool" if window_backend == "x11" else "ydotool"
+        if shutil.which(sender) is None:
+            raise ClipboardError(f"Install {sender} to paste into this editor")
         self._backend = window_backend
         self._Gdk, self._Gio, self._GLib, Gtk = _load_gdk()
         self._env = os.environ.copy()

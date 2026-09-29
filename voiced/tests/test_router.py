@@ -312,6 +312,14 @@ class DraftWriterTests(unittest.TestCase):
 
 
 class FocusTests(unittest.TestCase):
+    def test_startup_reports_missing_focus_and_paste_tools(self):
+        from voiced.router import check_prereqs
+        with patch('voiced.router.shutil.which',return_value=None):
+            problems=check_prereqs()
+        self.assertEqual(len(problems),3)
+        for name in ('gdbus','xdotool','ydotool'):
+            self.assertTrue(any(name in problem for problem in problems))
+
     def test_atspi_text_dispatch_avoids_accessible_method_collision(self):
         from voiced.focus import _read_field
 

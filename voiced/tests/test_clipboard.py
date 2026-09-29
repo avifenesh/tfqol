@@ -191,6 +191,9 @@ class Display(Signals):
 
 class ClipboardTests(unittest.TestCase):
     def setUp(self):
+        sender = patch('voiced.clipboard.shutil.which', side_effect=lambda name: '/usr/bin/'+name)
+        sender.start()
+        self.addCleanup(sender.stop)
         self.original = {
             "text/plain;charset=utf-8": "original café".encode(),
             "text/html": b"<strong>original caf&#233;</strong>",
@@ -233,6 +236,13 @@ class ClipboardTests(unittest.TestCase):
         self.assertNotIn("text/html", self.native.data)
         self.assertTrue(clipboard.restore())
         self.assertEqual(self.native.data, self.original)
+
+    def test_missing_sender_fails_before_native_initialization_or_mutation(self):
+        for backend, name in [('x11','xdotool'),('gnome','ydotool')]:
+            with patch('voiced.clipboard.shutil.which',return_value=None), patch('voiced.clipboard._load_gdk') as load:
+                with self.assertRaisesRegex(ClipboardError,name):Clipboard(backend)
+                load.assert_not_called()
+        self.assertEqual(self.native.writes,[])
 
     def test_snapshot_does_not_invent_serialized_formats(self):
         with patch.object(Formats, "union_serialize_mime_types",
