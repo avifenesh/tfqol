@@ -67,6 +67,7 @@ Requirements:
   an authenticated X11 display or XWayland clipboard bridge.
 - GNOME Wayland: the existing Computer Use Linux or Codex window-control extension
   for identifying focus. X11: `xdotool`.
+- For `voicectl copy`: `wl-copy` on Wayland or `xclip` on X11.
 
 ```sh
 cd ~/projects/tfqol/voiced
