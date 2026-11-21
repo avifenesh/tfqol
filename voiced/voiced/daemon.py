@@ -17,13 +17,16 @@ from pathlib import Path
 from . import audio, router
 from .config import DEFAULT, Settings, ensure_dirs, LOG_FILE, RUNTIME_DIR
 from .keywatch import KeyWatcher
-from .stt import STT
+from .stt import STT, ModelUnavailable
 from .pipeline import dictate
 
 PIDFILE = Path(RUNTIME_DIR) / "voiced.pid"
 STATEFILE = Path(RUNTIME_DIR) / "state.json"
 RECOVERY = Path(RUNTIME_DIR) / "latest.txt"
 MUTEFILE = Path(RUNTIME_DIR) / "voiced.muted"
+
+# EX_CONFIG. The unit does not restart on it: see systemd/voiced.service.
+EXIT_MODEL_MISSING = 78
 
 log = logging.getLogger("voiced")
 
@@ -39,16 +42,23 @@ def setup_logging(verbose: bool) -> None:
                         format=fmt, handlers=handlers, force=True)
 
 
-def _notify(title: str, body: str = "") -> None:
+def _notify(title: str, body: str = "", *, wait: bool = False) -> None:
+    """Show a desktop notice. wait: the caller is about to exit, and the
+    service manager kills what is left of the process group."""
     try:
-        subprocess.Popen(
+        sender = subprocess.Popen(
             ["notify-send", "--app-name", "voiced", "--expire-time", "3000",
              "--hint", "string:x-canonical-private-synchronous:voiced",
              "--icon", "audio-input-microphone", title, body],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        pass
+        return
+    if wait:
+        try:
+            sender.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 class Daemon:
@@ -94,7 +104,14 @@ class Daemon:
         except OSError as e:
             log.warning("pidfile write failed: %s", e)
 
-        self.stt.load()
+        try:
+            self.stt.load()
+        except ModelUnavailable as exc:
+            log.error("%s", exc)
+            self._set_state("error")
+            _notify("voiced cannot start", str(exc), wait=True)
+            PIDFILE.unlink(missing_ok=True)
+            return EXIT_MODEL_MISSING
         self._set_state("idle")
 
         watcher = KeyWatcher(self._on_arm, hold_ms=self.s.hold_ms,

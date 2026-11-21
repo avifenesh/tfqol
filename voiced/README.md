@@ -72,8 +72,9 @@ Requirements:
 ```sh
 cd ~/projects/tfqol/voiced
 uv sync --frozen
-# Download the default model once. Runtime loading is offline after this step.
-.venv/bin/python -c 'from faster_whisper import WhisperModel; WhisperModel("distil-small.en", device="cpu", compute_type="int8", cpu_threads=2)'
+# Download the default model once, into the cache the service reads.
+# Runtime loading is offline after this step.
+HF_HUB_CACHE=~/.cache/huggingface/hub .venv/bin/python -c 'from faster_whisper import WhisperModel; WhisperModel("distil-small.en", device="cpu", compute_type="int8", cpu_threads=2)'
 ln -sf "$PWD/.venv/bin/voiced" ~/.local/bin/voiced
 ln -sf "$PWD/.venv/bin/voicectl" ~/.local/bin/voicectl
 cp systemd/voiced.service ~/.config/systemd/user/
@@ -99,6 +100,11 @@ The microphone is closed when idle; the loaded model stays resident for reuse.
 | `max_session_seconds` | `60` | Maximum capture duration |
 | `whisper_model` | `distil-small.en` | Cached English recognition model |
 | `final_beam` | `5` | Search width for the final full-utterance decode |
+
+The service reads the model from `~/.cache/huggingface/hub`, set as `HF_HUB_CACHE`
+in the unit, whatever `HF_HOME` or `HF_HUB_CACHE` the session exports. A `voiced`
+started by hand reads the cache its own environment names. After an upgrade, copy
+`systemd/voiced.service` again and run `systemctl --user daemon-reload`.
 
 The last five settings are in `voiced/config.py`. Set environment overrides with
 `systemctl --user edit voiced`, for example:
@@ -136,6 +142,9 @@ and timing information, not dictated text; log files rotate at 2 MB.
   recent accumulated audio instead of a backlog of obsolete drafts.
 - An empty final transcription never erases a visible draft.
 - Device errors, overflows, and unconfirmed microphone shutdown are reported.
+- A model missing from the cache, or incomplete there, is reported with the
+  cache path. The service exits with status 78 and is not restarted. Download
+  the model, then run `systemctl --user start voiced`.
 - Cursor, field, focus, selection, or physical-input changes stop edits. No Ctrl+A,
   automatic refocus, or blind Backspace correction is used.
 

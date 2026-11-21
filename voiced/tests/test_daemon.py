@@ -82,6 +82,20 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(p.read_text(),'corrected')
         self.assertEqual(p.stat().st_mode & 0o777,0o600)
 
+    def test_missing_model_exits_with_the_status_the_unit_does_not_restart(self):
+        patch.object(daemon.router,'check_prereqs',return_value=[]).start()
+        patch.object(daemon,'ensure_dirs').start()
+        patch.object(daemon,'PIDFILE',self.path/'voiced.pid').start()
+        self.d.stt.load.side_effect=daemon.ModelUnavailable('model x is missing or incomplete in /models/hub')
+        with self.assertLogs('voiced',level='ERROR') as logs:
+            self.assertEqual(self.d.run(),78)
+        self.assertIn('/models/hub',' '.join(logs.output))
+        self.notify.assert_called_once()
+        self.assertTrue(self.notify.call_args.kwargs['wait'])
+        unit=(Path(__file__).parents[1]/'systemd'/'voiced.service').read_text()
+        self.assertIn('RestartPreventExitStatus=78',unit)
+        self.assertFalse((self.path/'voiced.pid').exists())
+
     def test_fatal_exit_bypasses_backend_atexit_handler(self):
         # A subprocess is necessary: a mocked os._exit would not establish
         # whether the native library's registered cleanup runs.

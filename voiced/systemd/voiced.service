@@ -10,8 +10,14 @@ Type=simple
 ExecStart=%h/projects/tfqol/voiced/.venv/bin/voiced
 Restart=always
 RestartSec=1
+# Exit 78: the model is not in the cache. A restart cannot fix that, so the
+# service stays failed until the model is downloaded and it is started again.
+RestartPreventExitStatus=78
 Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=2
+# The model is loaded offline from this cache. Pinned here so a HF_HOME or
+# HF_HUB_CACHE in the session environment cannot point the service elsewhere.
+Environment=HF_HUB_CACHE=%h/.cache/huggingface/hub
 CPUQuota=200%
 Nice=10
 # If you want the BT mic specifically, uncomment:

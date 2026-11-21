@@ -1,6 +1,7 @@
 """Whisper wrapper checks with a fake model, no downloads or inference."""
 from __future__ import annotations
 
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -8,7 +9,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from voiced.config import Settings
-from voiced.stt import STT
+from voiced.stt import STT, ModelUnavailable
 
 
 def segment(text, probability=0.1, logprob=-0.1):
@@ -94,6 +95,24 @@ class STTTests(unittest.TestCase):
         )
         self.model.transcribe.assert_called_once()
         self.assertEqual(self.model.transcribe.call_args.kwargs["beam_size"], 1)
+
+    def test_missing_model_names_the_model_and_the_cache_searched(self):
+        # The real offline lookup in an empty cache: it fails before any model
+        # code runs, so no download and no inference.
+        self.stt._model = None
+        with tempfile.TemporaryDirectory() as empty, \
+                patch("voiced.stt.hub.HF_HUB_CACHE", empty):
+            with self.assertRaises(ModelUnavailable) as raised:
+                self.stt.load()
+            self.assertIn(empty, str(raised.exception))
+        self.assertIn("distil-small.en", str(raised.exception))
+
+    def test_snapshot_without_its_files_is_reported_the_same_way(self):
+        self.stt._model = None
+        broken = RuntimeError("Unable to open file 'model.bin'")
+        with patch("voiced.stt.WhisperModel", side_effect=broken):
+            with self.assertRaises(ModelUnavailable):
+                self.stt.load()
 
 
 if __name__ == "__main__":

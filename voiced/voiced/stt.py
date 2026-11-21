@@ -7,10 +7,16 @@ from typing import Optional
 
 import numpy as np
 from faster_whisper import WhisperModel
+from huggingface_hub import constants as hub
+from huggingface_hub.utils import LocalEntryNotFoundError
 
 from .config import Settings
 
 log = logging.getLogger(__name__)
+
+
+class ModelUnavailable(RuntimeError):
+    """The local cache has no loadable copy of the model. Loading is offline."""
 
 
 class STT:
@@ -22,14 +28,23 @@ class STT:
         if self._model is not None:
             return
         t0 = time.perf_counter()
-        self._model = WhisperModel(
-            self.s.whisper_model,
-            device="cpu",
-            compute_type=self.s.whisper_compute,
-            cpu_threads=self.s.whisper_threads,
-            num_workers=1,
-            local_files_only=True,
-        )
+        try:
+            self._model = WhisperModel(
+                self.s.whisper_model,
+                device="cpu",
+                compute_type=self.s.whisper_compute,
+                cpu_threads=self.s.whisper_threads,
+                num_workers=1,
+                local_files_only=True,
+            )
+        except (LocalEntryNotFoundError, ValueError, RuntimeError) as exc:
+            # No snapshot, an unknown model name, or a snapshot without its
+            # files (an interrupted download). None of them heals on a retry.
+            raise ModelUnavailable(
+                f"model {self.s.whisper_model} is missing or incomplete in "
+                f"{hub.HF_HUB_CACHE}. Download it once into that cache "
+                "(README, Install), then start voiced again."
+            ) from exc
         # warm up with 0.5s of silence
         warm = np.zeros(self.s.sample_rate // 2, dtype=np.float32)
         list(self._model.transcribe(warm, beam_size=1,

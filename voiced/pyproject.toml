@@ -5,6 +5,7 @@ description = "Voice-to-terminal dictation daemon for Ghostty/tmux on Wayland"
 requires-python = ">=3.11"
 dependencies = [
     "faster-whisper>=1.0.3",
+    "huggingface-hub>=0.19",  # its cache path and lookup error, used in stt.py
     "sounddevice>=0.4.7",
     "webrtcvad-wheels>=2.0.14",
     "setuptools",  # webrtcvad-wheels imports pkg_resources
